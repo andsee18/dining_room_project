@@ -66,8 +66,8 @@ while True:
     elif key == ord("s"):
         if len(points) == 2 and inside_point is not None:
             data = {
-                "line": points,         # [(x1, y1), (x2, y2)]
-                "inside_ref": inside_point # (x, y)
+                "line": points,
+                "inside_ref": inside_point
             }
             with open("entry_lines.pkl", "wb") as f:
                 pickle.dump(data, f)
