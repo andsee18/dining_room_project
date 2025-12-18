@@ -5,92 +5,227 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { BarChart3, Info, User } from "lucide-react"
 import { StatisticsSheet } from "./StatisticsSheet"
+import { formatLastUpdate, getBackendBaseUrl, toWebSocketBaseUrl } from "@/lib/backend"
 
-// Тип для описания одного стола
+// тип данных одного стола
 interface TableData {
   id: number
   occupied: number
   capacity: number
+  statusColor?: "green" | "yellow" | "red"
+}
+// тип данных от бекенда
+interface BackendTable {
+  table_id: number
+  occupied: number
+  capacity: number
+  status_color: "green" | "yellow" | "red"
 }
 
-// Основной компонент приложения — экран с текущей загруженностью столовой
+interface BackendDetailedStatus {
+  overall_inside: number
+  total_capacity: number
+  tables: BackendTable[]
+  last_update: string
+}
+
+// главный экран занятости столов
 export function CafeteriaOccupancy() {
-  const [showStatistics, setShowStatistics] = useState(false) // открыта ли панель статистики
-  const [lastUpdated, setLastUpdated] = useState<string>("")  // время последнего обновления
-  const [isLoading, setIsLoading] = useState(true)            // имитация состояния "данные загружаются"
+  const [showStatistics, setShowStatistics] = useState(false) // панель статистики открыта тут
+  const [lastUpdated, setLastUpdated] = useState<string>("") // время последнего обновления тут
+  const [isLoading, setIsLoading] = useState(true)
+  const [tables, setTables] = useState<TableData[]>([]) // данные столов тут
 
-  // Временный мок: 15 столов с заполняемостью
-  // Позже сюда будут приходить реальные данные с backend/ML
-  const tables: TableData[] = [
-    { id: 1, occupied: 2, capacity: 4 },
-    { id: 2, occupied: 1, capacity: 4 },
-    { id: 3, occupied: 3, capacity: 4 },
-    { id: 4, occupied: 1, capacity: 4 },
-    { id: 5, occupied: 2, capacity: 4 },
-    { id: 6, occupied: 0, capacity: 4 },
-    { id: 7, occupied: 2, capacity: 4 },
-    { id: 8, occupied: 4, capacity: 4 },
-    { id: 9, occupied: 2, capacity: 4 },
-    { id: 10, occupied: 0, capacity: 4 },
-    { id: 11, occupied: 3, capacity: 4 },
-    { id: 12, occupied: 0, capacity: 4 },
-    { id: 13, occupied: 4, capacity: 4 },
-    { id: 14, occupied: 1, capacity: 4 },
-    { id: 15, occupied: 2, capacity: 4 },
-  ]
+  // показываем столы 1 18
+  const visibleTables = tables.filter((t) => t.id >= 1 && t.id <= 18)
+  const tableById = new Map<number, TableData>(visibleTables.map((t) => [t.id, t]))
+  const layoutRows: Array<{ leftId: number | null; rightId: number | null }> = Array.from(
+    { length: 10 },
+    (_, i) => {
+      const rowIndex = i + 1
+      const rightId = rowIndex
+      const leftId = rowIndex >= 2 && rowIndex <= 9 ? rowIndex + 9 : null
+      return { leftId, rightId }
+    }
+  )
 
-  // Суммарное количество мест и занятых мест
-  const totalCapacity = tables.reduce((sum, table) => sum + table.capacity, 0)
-  const totalOccupied = tables.reduce((sum, table) => sum + table.occupied, 0)
+  const renderTile = (table: TableData | undefined, key: string, animationIndex: number) => {
+    const baseClasses =
+      "rounded-lg p-3 flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+
+    const colorClass = isLoading
+      ? "bg-[#3a435a]/80 animate-pulse"
+      : table
+      ? `${getTableColor(table)} table-appear`
+      : "bg-[#3a435a]/80"
+
+    return (
+      <div
+        key={key}
+        className={`${baseClasses} ${colorClass}`}
+        style={!isLoading ? { animationDelay: `${animationIndex * 60}ms` } : undefined}
+      >
+        {isLoading || !table ? (
+          <div className="h-4 w-10 rounded-md bg-gray-900/40" />
+        ) : (
+          <>
+            <User className="w-4 h-4 text-gray-800" />
+            <span className="text-gray-900 font-semibold text-base">
+              {table.occupied}/{table.capacity}
+            </span>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // считаем общую загрузку мест
+  const totalCapacity = visibleTables.reduce((sum, table) => sum + table.capacity, 0)
+  const totalOccupied = visibleTables.reduce((sum, table) => sum + table.occupied, 0)
   const occupancyPercent =
     totalCapacity > 0 ? Math.round((totalOccupied / totalCapacity) * 100) : 0
 
-  // Цвет фона для карточки стола в зависимости от доли занятых мест
-  const getTableColor = (occupied: number, capacity: number) => {
-    const ratio = occupied / capacity
-    if (ratio === 0) return "bg-emerald-400/80"  // стол полностью свободен
-    if (ratio < 0.5) return "bg-emerald-400/80"  // менее половины мест занято
-    if (ratio < 1) return "bg-amber-300/80"      // почти заполнен
-    return "bg-rose-400/80"                      // полностью заполнен
+  // цвет карточки по статусу
+  const getTableColor = (table: TableData) => {
+    if (table.statusColor === "green") return "bg-emerald-400/80"
+    if (table.statusColor === "yellow") return "bg-amber-300/80"
+    if (table.statusColor === "red") return "bg-rose-400/80"
+
+    const ratio = table.capacity > 0 ? table.occupied / table.capacity : 0
+    if (ratio === 0) return "bg-emerald-400/80"
+    if (ratio < 0.5) return "bg-emerald-400/80"
+    if (ratio < 1) return "bg-amber-300/80"
+    return "bg-rose-400/80"
   }
 
-  // Цвет прогресс-бара общей загрузки (те же цвета, что и у столов)
+  // цвет полосы общей загрузки
   const getProgressColor = (percent: number) => {
-    if (percent < 33) return "bg-emerald-400/80" // низкая загрузка
-    if (percent < 66) return "bg-amber-300/80"   // средняя
-    return "bg-rose-400/80"                      // высокая
+    if (percent < 33) return "bg-emerald-400/80"
+    if (percent < 66) return "bg-amber-300/80"
+    return "bg-rose-400/80"
   }
 
-  // Обновляем строку "Данные актуальны на ..." каждую минуту
+  // загрузка по хттп и вебсокет
   useEffect(() => {
-    const updateTime = () => {
-      const now = new Date()
-      const hours = now.getHours().toString().padStart(2, "0")
-      const minutes = now.getMinutes().toString().padStart(2, "0")
-      setLastUpdated(`${hours}:${minutes}`)
+    // СВЯЗЬ ФРОНТЕНДА И БЕКЕНДА: ФОРМИРОВАНИЕ URL
+    const backendBaseUrl = getBackendBaseUrl()
+    const abortController = new AbortController()
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let pollingTimer: ReturnType<typeof setInterval> | null = null
+    let reconnectAttempt = 0
+    let wsConnected = false
+
+    const applyStatus = (payload: BackendDetailedStatus) => {
+      setTables(
+        (payload.tables || []).map((t) => ({
+          id: t.table_id,
+          occupied: t.occupied,
+          capacity: t.capacity,
+          statusColor: t.status_color,
+        }))
+      )
+      setLastUpdated(formatLastUpdate(payload.last_update))
+      setIsLoading(false)
     }
 
-    updateTime() // выставляем время сразу при первом рендере
-    const intervalId = setInterval(updateTime, 60_000) // раз в минуту
+    // СВЯЗЬ ФРОНТЕНДА И БЕКЕНДА: HTTP FETCH
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch(`${backendBaseUrl}/api/status/detailed`, {
+          signal: abortController.signal,
+          cache: "no-store",
+        })
+        if (!response.ok) return
+        const json = (await response.json()) as BackendDetailedStatus
+        applyStatus(json)
+      } catch {
+        // игнорируем ошибку запроса тут
+      }
+    }
 
-    return () => clearInterval(intervalId)
-  }, [])
+    const scheduleReconnect = () => {
+      if (abortController.signal.aborted) return
+      if (reconnectTimer) return
 
-  // Имитация загрузки данных при первом открытии.
-  // Потом здесь можно будет ждать реальный ответ от backend.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 900) // ~0.9 секунды "загрузки"
+      // пауза растет до лимита
+      const delay = Math.min(10000, 1000 * Math.pow(2, reconnectAttempt))
+      reconnectAttempt += 1
 
-    return () => clearTimeout(timer)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connectWs()
+      }, delay)
+    }
+
+    // СВЯЗЬ ФРОНТЕНДА И БЕКЕНДА: WEBSOCKET
+    const connectWs = () => {
+      try {
+        wsConnected = false
+        ws = new WebSocket(`${toWebSocketBaseUrl(backendBaseUrl)}/ws/status`)
+
+        ws.onmessage = (event) => {
+          try {
+            const json = JSON.parse(event.data) as BackendDetailedStatus
+            applyStatus(json)
+          } catch {
+            // игнорируем битый кадр тут
+          }
+        }
+
+        ws.onopen = () => {
+          wsConnected = true
+          reconnectAttempt = 0
+          // отправляем пинг для канала
+          try {
+            ws?.send("ping")
+          } catch {
+            // игнорируем ошибку отправки тут
+          }
+        }
+
+        ws.onclose = () => {
+          wsConnected = false
+          scheduleReconnect()
+        }
+
+        ws.onerror = () => {
+          // ошибка сокета без паники
+          wsConnected = false
+        }
+      } catch {
+        // игнорируем ошибку сокета тут
+      }
+    }
+
+    fetchStatus()
+    connectWs()
+
+    // опрос если сокет молчит
+    pollingTimer = setInterval(() => {
+      if (abortController.signal.aborted) return
+      if (wsConnected) return
+      fetchStatus()
+    }, 3000)
+
+    return () => {
+      abortController.abort()
+      try {
+        ws?.close()
+      } catch {
+        // игнорируем ошибку закрытия тут
+      }
+
+      if (pollingTimer) clearInterval(pollingTimer)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+    }
   }, [])
 
   return (
     <div className="min-h-screen bg-[#1a1d29] pb-20">
       <div className="max-w-[430px] mx-auto px-4 py-6 space-y-4">
 
-        {/* Инфо-баннер с временем последнего обновления */}
+        {/* инфо баннер про обновление */}
         <Card className="bg-[#2d3548]/60 border-blue-500/30 p-3">
           <div className="flex items-center gap-2 text-blue-300/90">
             <Info className="w-4 h-4 flex-shrink-0" />
@@ -99,30 +234,30 @@ export function CafeteriaOccupancy() {
               <span className="font-semibold text-blue-100">
                 {lastUpdated || "—:—"}
               </span>{" "}
-              и обновляются каждые 3 минуты
+              и обновляются автоматически
             </p>
           </div>
         </Card>
 
-        {/* Заголовок и количество столов под ним */}
+        {/* заголовок приложения по центру */}
         <div className="text-center space-y-1">
           <h1 className="text-3xl font-bold text-white">
             Кафе «Восточное»
           </h1>
         </div>
 
-        {/* Всего столов — теперь справа над легендой статусов */}
+        {/* количество столов для справки */}
         <div className="text-right text-xs text-gray-400 pr-1 -mt-1 mb-1">
-          Всего столов: {tables.length}
+          Всего столов: {visibleTables.length}
         </div>
 
-        {/* Левая карточка — общая загрузка, правая — легенда статусов */}
+        {/* карточки загрузки и легенды */}
         <div className="grid grid-cols-2 gap-3">
-          {/* Карточка с общей загрузкой */}
+          {/* карточка общей загрузки тут */}
           <Card className="bg-[#2d3548]/80 border-gray-700/50 p-4">
             <div className="text-center">
               {isLoading ? (
-                // Скелетон во время загрузки
+                // скелетон при загрузке тут
                 <div className="flex flex-col items-center gap-3 animate-pulse">
                   <div className="h-9 w-24 rounded-md bg-slate-500/40" />
                   <div className="h-3 w-20 rounded-md bg-slate-500/30" />
@@ -135,7 +270,7 @@ export function CafeteriaOccupancy() {
                   </div>
                   <div className="text-gray-300 text-sm">Мест занято</div>
 
-                  {/* Прогресс-бар */}
+                  {/* прогресс бар общей загрузки */}
                   <div className="mt-3 h-2 rounded-full bg-gray-900/70 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${getProgressColor(
@@ -153,7 +288,7 @@ export function CafeteriaOccupancy() {
             </div>
           </Card>
 
-          {/* Карточка-легенда */}
+          {/* карточка легенды статусов тут */}
           <Card className="bg-[#2d3548]/80 border-gray-700/50 p-4">
             {isLoading ? (
               <div className="space-y-2 animate-pulse">
@@ -180,7 +315,7 @@ export function CafeteriaOccupancy() {
           </Card>
         </div>
 
-        {/* Карточка со схемой посадочных мест */}
+        {/* карточка схемы столов тут */}
         <Card className="bg-[#2d3548]/80 border-gray-700/50 p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-white">Посадочные места</h2>
@@ -195,38 +330,39 @@ export function CafeteriaOccupancy() {
             </Button>
           </div>
 
-          {/* Сетка столов */}
-          <div className="grid grid-cols-3 gap-2">
-            {tables.map((table, index) => {
-              const baseClasses =
-                "rounded-lg p-3 flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+          {/* сетка столов по схеме */}
+          <div className="grid grid-cols-2 gap-3">
+            {layoutRows.flatMap((row, rowIndex) => {
+              const animationBase = rowIndex * 2
 
-              const colorClass = isLoading
-                ? "bg-[#3a435a]/80 animate-pulse"
-                : `${getTableColor(table.occupied, table.capacity)} table-appear`
+              const left =
+                row.leftId === null
+                  ? [
+                      <div key={`empty-left-${rowIndex}`} aria-hidden="true" />,
+                    ]
+                  : [
+                      renderTile(
+                        tableById.get(row.leftId),
+                        `left-${row.leftId}`,
+                        animationBase
+                      ),
+                    ]
 
-              return (
-                <div
-                  key={table.id}
-                  className={`${baseClasses} ${colorClass}`}
-                  style={
-                    !isLoading
-                      ? { animationDelay: `${index * 60}ms` }
-                      : undefined
-                  }
-                >
-                  {isLoading ? (
-                    <div className="h-4 w-10 rounded-md bg-gray-900/40" />
-                  ) : (
-                    <>
-                      <User className="w-4 h-4 text-gray-800" />
-                      <span className="text-gray-900 font-semibold text-base">
-                        {table.occupied}/{table.capacity}
-                      </span>
-                    </>
-                  )}
-                </div>
-              )
+              const right =
+                row.rightId === null
+                  ? [
+                      <div key={`empty-right-${rowIndex}`} aria-hidden="true" />,
+                    ]
+                  : [
+                      renderTile(
+                        tableById.get(row.rightId),
+                        `right-${row.rightId}`,
+                        animationBase + 1
+                      ),
+                    ]
+
+              // порядок левый потом правый
+              return [...left, ...right]
             })}
           </div>
         </Card>
