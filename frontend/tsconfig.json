@@ -18,6 +18,7 @@
         "name": "next"
       }
     ],
+    "types": ["next", "next/image-types/global", "vitest/globals"],
     "paths": {
       "@/*": ["./src/*"]
     }

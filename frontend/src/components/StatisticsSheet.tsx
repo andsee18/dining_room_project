@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -14,42 +14,110 @@ interface StatisticsSheetProps {
   onOpenChange: (open: boolean) => void
 }
 
-// Дни недели, для которых у нас есть статистика
+// список дней недели тут
 type DayOfWeek = "Пн" | "Вт" | "Ср" | "Чт" | "Пт" | "Сб"
 
 const daysOfWeek: DayOfWeek[] = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
 
-// Тестовые данные загруженности по дням недели.
-// Каждый массив — значения по часам (соответствуют массиву hours ниже).
-const occupancyData: Record<DayOfWeek, number[]> = {
-  Пн: [10, 18, 25, 35, 48, 52, 45, 30],
-  Вт: [8, 15, 22, 38, 50, 58, 48, 28],
-  Ср: [12, 20, 28, 40, 52, 56, 50, 32],
-  Чт: [15, 22, 30, 42, 54, 60, 52, 35],
-  Пт: [18, 25, 32, 45, 55, 60, 55, 38],
-  Сб: [5, 10, 18, 25, 35, 42, 35, 22],
+interface BackendWeeklyStats {
+  days: DayOfWeek[]
+  hours: string[]
+  occupancy: Record<DayOfWeek, number[]>
+  total_capacity?: number
 }
 
-// Подписи по часам — ось X на графике
-const hours = ["09", "10", "11", "12", "13", "14", "15", "16"]
+function getBackendBaseUrl() {
+  let url = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim()
+  if (!url) url = "http://127.0.0.1:8000"
 
-// Выезжающая панель со статистикой загруженности по дням/часам
+  // допускаем адрес без схемы
+  if (!/^https?:\/\//i.test(url)) {
+    url = `http://${url}`
+  }
+
+  // убираем лишние слеши в конце
+  url = url.replace(/\/+$/, "")
+  return url
+}
+
+function createEmptyOccupancy(hoursCount: number): Record<DayOfWeek, number[]> {
+  return {
+    Пн: Array.from({ length: hoursCount }, () => 0),
+    Вт: Array.from({ length: hoursCount }, () => 0),
+    Ср: Array.from({ length: hoursCount }, () => 0),
+    Чт: Array.from({ length: hoursCount }, () => 0),
+    Пт: Array.from({ length: hoursCount }, () => 0),
+    Сб: Array.from({ length: hoursCount }, () => 0),
+  }
+}
+
+// выезжающая панель статистики дней
 export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>("Пн")
 
+  const [hours, setHours] = useState<string[]>(["09", "10", "11", "12", "13", "14", "15", "16"])
+  const [occupancyData, setOccupancyData] = useState<Record<DayOfWeek, number[]>>(
+    createEmptyOccupancy(8)
+  )
+  const [totalCapacity, setTotalCapacity] = useState<number>(54)
+
+  useEffect(() => {
+    const abortController = new AbortController()
+    const backendBaseUrl = getBackendBaseUrl()
+
+    const load = async () => {
+      try {
+        const response = await fetch(
+          `${backendBaseUrl}/api/stats/weekly?days_back=30&start_hour=0&end_hour=23`,
+          {
+          signal: abortController.signal,
+          }
+        )
+        if (!response.ok) return
+        const json = (await response.json()) as BackendWeeklyStats
+
+        if (Array.isArray(json.hours) && json.hours.length > 0) {
+          setHours(json.hours)
+        }
+
+        if (typeof json.total_capacity === "number" && Number.isFinite(json.total_capacity)) {
+          setTotalCapacity(json.total_capacity)
+        }
+
+        if (json.occupancy) {
+          // дополняем отсутствующие дни тут
+          const hoursCount = (json.hours && json.hours.length) || 8
+          setOccupancyData({
+            ...createEmptyOccupancy(hoursCount),
+            ...json.occupancy,
+          })
+        }
+      } catch {
+        // игнорируем ошибку запроса тут
+      }
+    }
+
+    load()
+    return () => abortController.abort()
+  }, [])
+
   const data = occupancyData[selectedDay]
-  const maxValue = Math.max(...Object.values(occupancyData).flat())
+  const maxValue = useMemo(() => {
+    const all = Object.values(occupancyData).flat()
+    const m = all.length ? Math.max(...all) : 0
+    return m > 0 ? m : 1
+  }, [occupancyData])
 
-  // Средняя загрузка за день (в процентах от максимума 60 мест)
-  const avgOccupancy = Math.round(data.reduce((a, b) => a + b, 0) / data.length)
-  // Час, на который приходится пик загруженности
+  // считаем среднюю загрузку дня
+  const avgSeats = data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0
+  const avgOccupancyPercent = Math.round((avgSeats / totalCapacity) * 100)
+  // час максимальной загрузки дня
   const peakHour = hours[data.indexOf(Math.max(...data))]
-  // maxValue пока не используем в UI, но он нужен для нормировки высоты столбцов
-  const peakValue = Math.max(...data) // оставлен на будущее, если захотим показать
+  const peakValue = Math.max(...data)
 
-  // Цвет столбика на графике в зависимости от процента занятости
+  // цвет столбика по загрузке
   const getBarColor = (value: number) => {
-    const percentage = (value / 60) * 100
+    const percentage = (value / totalCapacity) * 100
     if (percentage < 33) return "bg-emerald-400/80"
     if (percentage < 66) return "bg-amber-300/80"
     return "bg-rose-400/80"
@@ -68,7 +136,7 @@ export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
             </SheetTitle>
           </SheetHeader>
 
-          {/* Переключатель дней недели */}
+          {/* выбор дня недели тут */}
           <div className="flex gap-1.5 justify-center mb-4 flex-wrap">
             {daysOfWeek.map((day) => (
               <Button
@@ -87,12 +155,12 @@ export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
             ))}
           </div>
 
-          {/* Краткая сводка по выбранному дню */}
+          {/* сводка по дню тут */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="bg-[#1a1d29]/60 rounded-lg p-3 text-center">
               <div className="text-xs text-gray-400 mb-1">Средняя загрузка</div>
               <div className="text-xl font-bold text-white">
-                {avgOccupancy}%
+                {avgOccupancyPercent}%
               </div>
             </div>
             <div className="bg-[#1a1d29]/60 rounded-lg p-3 text-center">
@@ -101,14 +169,14 @@ export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
             </div>
           </div>
 
-          {/* Простейший "ручной" bar chart */}
+          {/* график по часам тут */}
           <div className="bg-[#1a1d29]/40 rounded-xl p-3">
             <div className="relative h-40">
               <div className="absolute inset-0 flex items-end justify-between gap-0.5">
                 {data.map((value, index) => {
-                  // Нормируем высоту столбика относительно максимального значения
+                  // нормируем высоту столбика тут
                   const height = (value / maxValue) * 100
-                  const percentage = Math.round((value / 60) * 100)
+                  const percentage = Math.round((value / totalCapacity) * 100)
                   return (
                     <div
                       key={index}
@@ -124,13 +192,13 @@ export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
                             minHeight: height > 0 ? "12px" : "0",
                           }}
                         >
-                          {/* Подпись над столбиком: процент загруженности */}
+                          {/* подпись процента над столбиком */}
                           <div className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-white whitespace-nowrap">
                             {percentage}%
                           </div>
                         </div>
                       </div>
-                      {/* Подпись по оси X — час */}
+                      {/* подпись часа под столбиком */}
                       <span className="text-gray-400 text-[10px] font-medium">
                         {hours[index]}
                       </span>
@@ -141,7 +209,7 @@ export function StatisticsSheet({ open, onOpenChange }: StatisticsSheetProps) {
             </div>
           </div>
 
-          {/* Легенда по цветам для графика */}
+          {/* легенда цветов для графика */}
           <div className="flex justify-center gap-4 mt-4 text-xs">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-emerald-400/80" />

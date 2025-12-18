@@ -48,7 +48,7 @@ export function SheetContent({
         className={cn(
           "sheet-content fixed z-50 flex flex-col bg-[#2d3548] text-white shadow-lg rounded-t-3xl",
 
-          // ⬇️ Исправленное центрирование + адаптивная ширина
+          // центрирование и адаптивная ширина
           side === "bottom" &&
             "left-1/2 -translate-x-1/2 bottom-0 w-full max-w-[430px] md:max-w-[720px] lg:max-w-[960px]",
 
@@ -56,7 +56,7 @@ export function SheetContent({
         )}
         {...props}
       >
-        {/* Плавное появление содержимого */}
+        {/* плавное появление содержимого тут */}
         <div className="sheet-inner px-4 pb-4 pt-2">{children}</div>
 
         <SheetPrimitive.Close className="absolute top-4 right-4 inline-flex items-center justify-center rounded-full bg-black/30 p-1 text-white opacity-70 transition hover:bg-black/50 hover:opacity-100">

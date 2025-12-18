@@ -1,4 +1,4 @@
-// Главная страница приложения: просто рендерим основной компонент с планом столовой
+// главная страница приложения тут
 import { CafeteriaOccupancy } from "@/components/CafeteriaOccupancy"
 
 export default function Home() {

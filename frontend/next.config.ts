@@ -1,8 +1,8 @@
-// next.config.ts
+// конфиг некст проекта тут
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
-  // можно оставить пустым, если ничего особенного не нужно
+  // можно оставить пустым тут
 }
 
 export default nextConfig

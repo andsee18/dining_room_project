@@ -1,14 +1,13 @@
 import type { Metadata } from "next"
 import "./globals.css"
 
-// Метаданные страницы: заголовок вкладки и описание для поисковиков / превью
+// метаданные страницы для сео
 export const metadata: Metadata = {
   title: "Кафе «Восточное»",
   description: "Мониторинг загруженности столовой",
 }
 
-// Общий layout для приложения.
-// Здесь подключаем глобальные стили и задаём общую разметку html/body.
+// общий лэйаут для приложения
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -16,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      {/* antialiased — сглаживание шрифтов, фон задаём здесь один раз */}
+      {/* сглаживание текста и фон */}
       <body className="antialiased bg-[#1a1d29]">
         {children}
       </body>
