@@ -1,26 +1,57 @@
-﻿__pycache__/
+
+# --- Python ---
+__pycache__/
 *.py[cod]
-.pytest_cache/
-**/.pytest_cache/
+*.pyd
+
+# Virtual environments
 .venv/
 venv/
 env/
+
+# Virtual envs inside subfolders (common in this repo)
 **/.venv/
 **/venv/
 **/env/
 **/ml310_env/
-node_modules/
-.next/
-out/
-*.log
-logs/
-*.mp4
-*.MP4
-*.mov
-*.MOV
+
+# Environment files (keep examples)
 .env
 **/.env
 .env.*
 **/.env.*
 !.env.example
 !**/.env.example
+
+# If someone committed local venvs inside subfolders
+project_backend/env/
+ml/final_ml_env/
+ml/ml/final_ml_env/
+
+# Pytest cache
+.pytest_cache/
+**/.pytest_cache/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+
+# Large media files (GitHub has 100MB file limit)
+*.mp4
+*.MP4
+
+# Logs
+*.log
+*.out.txt
+*.err.txt
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
